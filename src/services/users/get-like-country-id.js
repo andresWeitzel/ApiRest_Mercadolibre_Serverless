@@ -1,50 +1,48 @@
-//Externals
-const { Op } = require('sequelize');
 //Models
-const { User } = require('../../models/sequelize/user');
+const { User } = require("../../models/sequelize/user");
 //Enums
-const { sequelizeConnection } = require('../../enums/sequelize/errors');
+const { sequelizeConnection } = require("../../enums/sequelize/errors");
 const {
   sortingMessage,
-} = require('../../enums/pagination/errors/status-message');
-const { validateUser } = require('../../enums/validation/user/validations');
+} = require("../../enums/pagination/errors/status-message");
+const { validateUser } = require("../../enums/validation/user/validations");
+const { fields } = require("../../enums/common/users");
+const { orderAt } = require("../../enums/pagination/ordering/orderAt");
+
 //Helpers
-const { getDateFormat } = require('../../helpers/sequelize/format/date-format');
+const { getDateFormat } = require("../../helpers/sequelize/format/date-format");
 const {
   checkSequelizeErrors,
-} = require('../../helpers/sequelize/errors/checkError');
+} = require("../../helpers/sequelize/errors/checkError");
 const {
   checkOrderAt,
   checkOrderBy,
-} = require('../../helpers/pagination/users/order');
+} = require("../../helpers/pagination/users/order");
 const {
   validatePathParameters,
-} = require('../../helpers/http/query-string-params');
+} = require("../../helpers/http/query-string-params");
 const {
   getLowerFormat,
-} = require('../../helpers/sequelize/format/lower-format');
+} = require("../../helpers/sequelize/format/lower-format");
 // Const
 //connection_status
 const DB_CONNECTION_ERROR_STATUS = sequelizeConnection.CONNECTION_ERROR;
 const DB_CONNECTION_REFUSED_STATUS =
   sequelizeConnection.CONNECTION_REFUSED_ERROR;
 //sorting messages
-const ORDER_BY_ERROR_NAME = sortingMessage.ORDER_BY_ERROR_MESSAGE;
-const ORDER_AT_ERROR_NAME = sortingMessage.ORDER_AT_ERROR_MESSAGE;
-const GENERIC_ERROR_LOG_MESSAGE = 'Error in getLikeCountryId service function.';
+const ORDER_BY_ERROR_MESSAGE = sortingMessage.ORDER_BY_ERROR_MESSAGE;
+const ORDER_AT_ERROR_MESSAGE = sortingMessage.ORDER_AT_ERROR_MESSAGE;
+const GENERIC_ERROR_LOG_MESSAGE = "Error in getLikeCountryId service function.";
 //Validations
 const VALIDATE_PATH_PARAMETER_USER = validateUser.VALIDATE_PATH_PARAMETER_USER;
+const DEFAULT_PAGE_SIZE = 5;
+const DEFAULT_PAGE_NUMBER = 0;
+const DEFAULT_ORDER_BY = fields.ID_NAME_VALUE;
+const DEFAULT_ORDER_AT = orderAt.ASC;
 //vars
 let userList;
 let countryId;
-let msgLog;
-let queryStrParams;
-let pageSizeNro;
 let validatePathParam;
-let pageNro;
-let orderBy;
-let orderAt;
-let order;
 
 /**
  * @description get all paged users whose country id matches the passed as parameter
@@ -57,12 +55,6 @@ const getLikeCountryId = async function (event) {
   try {
     userList = null;
     countryId = null;
-    //pagination
-    pageSizeNro = 5;
-    pageNro = 0;
-    orderBy = 'id';
-    orderAt = 'ASC';
-    msgLog = null;
 
     //-- start with path parameters  ---
     countryId = await event.pathParameters.countryId;
@@ -72,59 +64,49 @@ const getLikeCountryId = async function (event) {
     if (!validatePathParam) {
       return VALIDATE_PATH_PARAMETER_USER;
     }
-    //-- end with path parameters  ---
-    //-- start with pagination  ---
-    queryStrParams = await event.queryStringParameters;
 
-    if (queryStrParams != (null && undefined)) {
-      pageSizeNro = queryStrParams.limit
-        ? parseInt(queryStrParams.limit)
-        : pageSizeNro;
-      pageNro = queryStrParams.page ? parseInt(queryStrParams.page) : pageNro;
-      orderBy = queryStrParams.orderBy ? queryStrParams.orderBy : orderBy;
-      orderAt = queryStrParams.orderAt ? queryStrParams.orderAt : orderAt;
-    }
+    const queryStrParams = event.queryStringParameters || {};
 
-    orderBy = await checkOrderBy(orderBy);
+    // Pagination parameters
+    const pageSizeNro = parseInt(queryStrParams.limit) || DEFAULT_PAGE_SIZE;
+    const pageNro = parseInt(queryStrParams.page) || DEFAULT_PAGE_NUMBER;
+    const orderBy = await checkOrderBy(
+      queryStrParams.orderBy || DEFAULT_ORDER_BY
+    );
+    const orderAt = await checkOrderAt(
+      queryStrParams.orderAt || DEFAULT_ORDER_AT
+    );
 
-    if (orderBy == (null || undefined)) {
-      return ORDER_BY_ERROR_NAME;
-    }
+    if (!orderBy) return ORDER_BY_ERROR_MESSAGE;
+    if (!orderAt) return ORDER_AT_ERROR_MESSAGE;
 
-    orderAt = await checkOrderAt(orderAt);
+    const order = [[orderBy, orderAt]];
 
-    if (orderAt == (null || undefined)) {
-      return ORDER_AT_ERROR_NAME;
-    }
-
-    order = [[orderBy, orderAt]];
     //-- end with pagination  ---
 
-    if (User != null) {
-      await User.findAll({
+    if (!User) {
+      return await checkSequelizeErrors(null, DB_CONNECTION_REFUSED_STATUS);
+    }
+
+    try {
+      const users = await User.findAll({
         attributes: {
           include: [
-            await getDateFormat('creation_date'),
-            await getDateFormat('update_date'),
+            await getDateFormat(fields.CREATION_DATE_NAME_VALUE),
+            await getDateFormat(fields.UPDATE_DATE_NAME_VALUE),
           ],
         },
-        where: await getLowerFormat('country_id', countryId),
+        where: await getLowerFormat(fields.COUNTRY_ID_NAME_VALUE, countryId),
         limit: pageSizeNro,
+        offset: pageNro * pageSizeNro,
         order: order,
-        raw: true, //Only dataValues
-        nest: true, //for formatting with internal objects
-      })
-        .then(async (users) => {
-          userList = users;
-        })
-        .catch(async (error) => {
-          msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;
-          console.log(msgLog);
-
-          userList = await checkSequelizeErrors(error, error.name);
-        });
-    } else {
-      userList = await checkSequelizeErrors(null, DB_CONNECTION_REFUSED_STATUS);
+        raw: true, // Return plain objects
+        nest: true, // Format nested objects
+      });
+      return users;
+    } catch (error) {
+      console.error(`${GENERIC_ERROR_LOG_MESSAGE} Caused by ${error}`);
+      return await checkSequelizeErrors(error, error.name);
     }
   } catch (error) {
     msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;

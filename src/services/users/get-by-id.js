@@ -1,83 +1,64 @@
-//Models
+// Models
 const { User } = require('../../models/sequelize/user');
-//Enums
+
+// Enums
 const { sequelizeConnection } = require('../../enums/sequelize/errors');
 const { validateUser } = require('../../enums/validation/user/validations');
-//Helpers
+const { fields } = require('../../enums/common/users');
+
+// Helpers
 const { getDateFormat } = require('../../helpers/sequelize/format/date-format');
-const {
-  checkSequelizeErrors,
-} = require('../../helpers/sequelize/errors/checkError');
-const {
-  validatePathParameters,
-} = require('../../helpers/http/query-string-params');
-// Const
-//connection_status
+const { checkSequelizeErrors } = require('../../helpers/sequelize/errors/checkError');
+const { validatePathParameters } = require('../../helpers/http/query-string-params');
+
+// Constants
 const DB_CONNECTION_ERROR_STATUS = sequelizeConnection.CONNECTION_ERROR;
-const DB_CONNECTION_REFUSED_STATUS =
-  sequelizeConnection.CONNECTION_REFUSED_ERROR;
-const GENERIC_ERROR_LOG_MESSAGE = 'Error in getById service function.';
-//Validations
+const DB_CONNECTION_REFUSED_STATUS = sequelizeConnection.CONNECTION_REFUSED_ERROR;
 const VALIDATE_PATH_PARAMETER_USER = validateUser.VALIDATE_PATH_PARAMETER_USER;
-//Vars
-let user;
-let msgLog;
-let userIdParam;
-let validatePathParam;
+const GENERIC_ERROR_LOG_MESSAGE = 'Error in getById service function.';
 
 /**
- * @description Get a user with all its attributes whose id matches the one passed as a parameter
- * @param {object} event object type
- * @returns a user according to his id
+ * @description Retrieve a user by ID with all attributes, including formatted dates.
+ * @param {Object} event Event containing the path parameter.
+ * @returns {Promise<Object|string>} User details or validation/error message.
  * @example
  * {"id":2,"nickname":"JAVIER GONZALEZ","first_name":"Javier","last_name":"Gonzalez","email":"javiBoquita@gmail.com","identification_type":"DNI","identification_number":"2672268765","country_id":"AR","creation_date":"2023-04-23 21:18:11","update_date":"2023-04-23 21:18:11"}
  */
-const getById = async function (event) {
+const getById = async (event) => {
   try {
-    user = null;
-    msgLog = null;
-    userIdParam = null;
+    const userIdParam = event.pathParameters?.id;
 
-    //-- start with path parameters  ---
-    userIdParam = await event.pathParameters.id;
+    // Validate path parameter
+    const isValidParam = await validatePathParameters(userIdParam);
+    if (!isValidParam) return VALIDATE_PATH_PARAMETER_USER;
 
-    validatePathParam = await validatePathParameters(userIdParam);
-
-    if (!validatePathParam) {
-      return VALIDATE_PATH_PARAMETER_USER;
+    // Ensure the User model is available
+    if (!User) {
+      return await checkSequelizeErrors(null, DB_CONNECTION_REFUSED_STATUS);
     }
-    //-- end with path parameters  ---
 
-    if (User != null) {
-      await User.findByPk(userIdParam, {
+    try {
+      // Fetch user by primary key with all attributes and formatted dates
+      const user = await User.findByPk(userIdParam, {
         attributes: {
           include: [
-            await getDateFormat('creation_date'),
-            await getDateFormat('update_date'),
+            await getDateFormat(fields.CREATION_DATE_NAME_VALUE),
+            await getDateFormat(fields.UPDATE_DATE_NAME_VALUE),
           ],
-          raw: true, //Only dataValues
-          nest: true, //for formatting with internal objects
         },
-      })
-        .then(async (object) => {
-          user = object;
-        })
-        .catch(async (error) => {
-          msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;
-          console.log(msgLog);
+        raw: true, // Return plain objects
+        nest: true, // Format nested objects
+      });
 
-          user = await checkSequelizeErrors(error, error.name);
-        });
-    } else {
-      user = await checkSequelizeErrors(null, DB_CONNECTION_REFUSED_STATUS);
+      return user || `User with ID ${userIdParam} not found.`;
+    } catch (error) {
+      console.error(`${GENERIC_ERROR_LOG_MESSAGE} Caused by ${error}`);
+      return await checkSequelizeErrors(error, error.name);
     }
   } catch (error) {
-    msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;
-    console.log(msgLog);
-
-    user = await checkSequelizeErrors(error, DB_CONNECTION_ERROR_STATUS);
+    console.error(`${GENERIC_ERROR_LOG_MESSAGE} Caused by ${error}`);
+    return await checkSequelizeErrors(error, DB_CONNECTION_ERROR_STATUS);
   }
-  return user;
 };
 
 module.exports = {

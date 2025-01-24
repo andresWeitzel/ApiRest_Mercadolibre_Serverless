@@ -1,120 +1,75 @@
-//Models
+// Models
 const { User } = require('../../models/sequelize/user');
-//Helpers
+
+// Helpers
 const { getDateFormat } = require('../../helpers/sequelize/format/date-format');
-const {
-  checkSequelizeErrors,
-} = require('../../helpers/sequelize/errors/checkError');
-const {
-  checkOrderBy,
-  checkOrderAt,
-} = require('../../helpers/pagination/users/order');
-//Enums
+const { checkSequelizeErrors } = require('../../helpers/sequelize/errors/checkError');
+const { checkOrderBy, checkOrderAt } = require('../../helpers/pagination/users/order');
+
+// Enums
 const { sequelizeConnection } = require('../../enums/sequelize/errors');
-const {
-  sortingMessage,
-} = require('../../enums/pagination/errors/status-message');
-// Const
-//connection_status
+const { sortingMessage } = require('../../enums/pagination/errors/status-message');
+const { fields } = require('../../enums/common/users');
+const { orderAt } = require('../../enums/pagination/ordering/orderAt');
+
+// Constants
 const DB_CONNECTION_ERROR_STATUS = sequelizeConnection.CONNECTION_ERROR;
-const DB_CONNECTION_REFUSED_STATUS =
-  sequelizeConnection.CONNECTION_REFUSED_ERROR;
-//sorting messages
-const ORDER_BY_ERROR_NAME = sortingMessage.ORDER_BY_ERROR_MESSAGE;
-const ORDER_AT_ERROR_NAME = sortingMessage.ORDER_AT_ERROR_MESSAGE;
+const DB_CONNECTION_REFUSED_STATUS = sequelizeConnection.CONNECTION_REFUSED_ERROR;
+const ORDER_BY_ERROR_MESSAGE = sortingMessage.ORDER_BY_ERROR_MESSAGE;
+const ORDER_AT_ERROR_MESSAGE = sortingMessage.ORDER_AT_ERROR_MESSAGE;
 const GENERIC_ERROR_LOG_MESSAGE = 'Error in getAll service function.';
-//Vars
-let usersList;
-let msgLog;
-let queryStrParams;
-let pageSizeNro;
-let pageNro;
-let orderBy;
-let orderAt;
-let order;
+const DEFAULT_PAGE_SIZE = 5;
+const DEFAULT_PAGE_NUMBER = 0;
+const DEFAULT_ORDER_BY = fields.ID_NAME_VALUE;
+const DEFAULT_ORDER_AT = orderAt.ASC;
 
 /**
- * @description gets all paged users with all their attributes
- * @param {event} event event type
- * @returns a list of paginated users
- * @example
- * [{"id":1,"nickname":"RAFA-CON","first_name":"Rafael","last_name":"Castro","email":"rafael_castro88@gmail.com","identification_type":"DNI","identification_number":"445938822","country_id":"AR","creation_date":"2023-02-22 21:18:11","update_date":"2023-02-22 21:18:11"},{"id".....]
+ * @description Fetches paginated users with their attributes.
+ * @param {Object} event Event containing query parameters.
+ * @returns {Promise<Array|Object>} List of paginated users or error details.
  */
-const getAll = async function (event) {
+const getAll = async (event) => {
   try {
-    usersList = null;
-    //pagination
-    pageSizeNro = 5;
-    pageNro = 0;
-    orderBy = 'id';
-    orderAt = 'ASC';
-    msgResponse = null;
-    msgLog = null;
+    const queryStrParams = event.queryStringParameters || {};
 
-    //-- start with pagination  ---
-    queryStrParams = await event.queryStringParameters;
+    // Pagination parameters
+    const pageSizeNro = parseInt(queryStrParams.limit) || DEFAULT_PAGE_SIZE;
+    const pageNro = parseInt(queryStrParams.page) || DEFAULT_PAGE_NUMBER;
+    const orderBy = await checkOrderBy(queryStrParams.orderBy || DEFAULT_ORDER_BY);
+    const orderAt = await checkOrderAt(queryStrParams.orderAt || DEFAULT_ORDER_AT);
 
-    if (queryStrParams != (null && undefined)) {
-      pageSizeNro = queryStrParams.limit
-        ? parseInt(queryStrParams.limit)
-        : pageSizeNro;
-      pageNro = queryStrParams.page ? parseInt(queryStrParams.page) : pageNro;
-      orderBy = queryStrParams.orderBy ? queryStrParams.orderBy : orderBy;
-      orderAt = queryStrParams.orderAt ? queryStrParams.orderAt : orderAt;
+    if (!orderBy) return ORDER_BY_ERROR_MESSAGE;
+    if (!orderAt) return ORDER_AT_ERROR_MESSAGE;
+
+    const order = [[orderBy, orderAt]];
+
+    if (!User) {
+      return await checkSequelizeErrors(null, DB_CONNECTION_REFUSED_STATUS);
     }
 
-    orderBy = await checkOrderBy(orderBy);
-
-    if (orderBy == (null || undefined)) {
-      return ORDER_BY_ERROR_NAME;
-    }
-
-    orderAt = await checkOrderAt(orderAt);
-
-    if (orderAt == (null || undefined)) {
-      return ORDER_AT_ERROR_NAME;
-    }
-
-    order = [[orderBy, orderAt]];
-    //-- end with pagination  ---
-
-    if (User != null) {
-      await User.findAll({
+    try {
+      const users = await User.findAll({
         attributes: {
           include: [
-            await getDateFormat('creation_date'),
-            await getDateFormat('update_date'),
+            await getDateFormat(fields.CREATION_DATE_NAME_VALUE),
+            await getDateFormat(fields.UPDATE_DATE_NAME_VALUE),
           ],
         },
         limit: pageSizeNro,
-        offset: pageNro,
-        order: order,
-        raw: true, //Only dataValues
-        nest: true, //for formatting with internal objects
-      })
-        .then(async (users) => {
-          usersList = users;
-        })
-        .catch(async (error) => {
-          msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;
-          console.log(msgLog);
-
-          usersList = await checkSequelizeErrors(error, error.name);
-        });
-    } else {
-      usersList = await checkSequelizeErrors(
-        null,
-        DB_CONNECTION_REFUSED_STATUS,
-      );
+        offset: pageNro * pageSizeNro,
+        order,
+        raw: true, // Return plain objects
+        nest: true, // Format nested objects
+      });
+      return users;
+    } catch (error) {
+      console.error(`${GENERIC_ERROR_LOG_MESSAGE} Caused by ${error}`);
+      return await checkSequelizeErrors(error, error.name);
     }
   } catch (error) {
-    msgLog = GENERIC_ERROR_LOG_MESSAGE + `Caused by ${error}`;
-    console.log(msgLog);
-
-    usersList = await checkSequelizeErrors(error, DB_CONNECTION_ERROR_STATUS);
+    console.error(`${GENERIC_ERROR_LOG_MESSAGE} Caused by ${error}`);
+    return await checkSequelizeErrors(error, DB_CONNECTION_ERROR_STATUS);
   }
-
-  return usersList;
 };
 
 module.exports = {

@@ -24,6 +24,6 @@ process.env.DATABASE_POOL_ACQUIRE = 30000
 process.env.DATABASE_POOL_IDLE = 10000
 //Generic
 process.env.APP_LOCALHOST= 'http://127.0.0.1'
-//SWAGGER
+//Swagger
 process.env.SWAGGER_BASE_PATH_CORS= 'http://127.0.0.1/swagger/'
 process.env.SWAGGER_BASE_PATH_CORS= '*'
